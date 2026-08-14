@@ -29,9 +29,9 @@
 No need to switch to a browser. Simply hover over a word or sentence and a popup instantly shows its meaning. Leverages Google's dictionary feature (POS) to display parts of speech, detailed definitions, and transliteration.
 
 ### 2. A Hybrid Engine for Every Use Case
-**Speed** — Blazing-fast Google / Google GTX  
-**Precision** — Reliable DeepL / Bing / Yandex / Papago  
-**Context** — Context-aware LLM (OpenAI-compatible / Ollama / LM Studio)
+**Speed** — Blazing-fast Google / Google GTX / Google V2  
+**Precision** — Reliable DeepL / Bing / Yandex / Papago / Baidu  
+**Context** — Context-aware LLM (OpenAI / Claude / Gemini / Grok / Groq / OpenRouter / GitHub Models / Ollama / LM Studio)
 
 Assign the best engine independently for hover, text selection, and full-page translation.
 
@@ -122,39 +122,42 @@ Click the book icon in the ribbon or run the **"Open vocabulary book"** command 
 | Show detected language | Display detected source and target language |
 | Skip same-language translations | Hide tooltip when detected language matches target language |
 | Skip identical translations (strict) | Also hide tooltip when translation result is identical to input |
+| Fallback translator engine | Retry a failed request with another engine (Google / Bing / Baidu), temporarily benching the failed one |
 | Disable translation cache | Call the API every time, bypassing the in-memory cache |
 
 ---
 
 ## Translation Engines
 
-The default engine is Google.
+The engine list fully mirrors the reference Chrome extension (v0.1.246). The default engine is google.
 
 Experimental engines may stop working due to upstream service changes.
 
 | Engine | Notes |
 | --- | --- |
-| Google | Default. Supports dictionary entries and transliteration |
-| Google GTX | Alternative Google endpoint |
-| DeepL | Experimental web endpoint |
-| Bing | Experimental web endpoint |
-| Yandex | Experimental web endpoint |
-| Papago | Experimental web endpoint |
-| OpenAI-compatible API | Any server implementing the OpenAI Chat Completions API. Requires API URL and model name. API key and custom prompt template are also configurable |
-| Ollama | Local inference via Ollama. Requires a running Ollama server and model name |
-| LM Studio | Local inference via LM Studio. Requires a running LM Studio server and model name |
+| google | Default. Supports dictionary entries and transliteration |
+| bing | Web endpoint |
+| LLM - OpenAI / Claude / Gemini / Local | OpenAI-compatible chat completions with provider presets (see below) |
+| deepl | Experimental web endpoint |
+| yandex | Experimental web endpoint |
+| baidu | Experimental web endpoint |
+| papago | Experimental web endpoint |
+| browser API | Chromium built-in Translator API (requires Chrome 138+ runtime; may be unavailable in Obsidian) |
+| googleWebImage | Shows the first Google image search hit for the hovered word |
+| googleGTX | Alternative Google endpoint |
+| googleWeb | Google dictionary definition ("meaning:") scrape |
+| googleV2 | Google batchexecute endpoint |
 
 ### LLM Engine Settings
 
-When an LLM engine (OpenAI-compatible / Ollama / LM Studio) is selected for any context, the following additional settings appear.
+When the LLM engine is selected for any context, the following additional settings appear.
 
 | Setting | Description |
 | --- | --- |
-| API URL | Base URL of the server (e.g. `https://api.openai.com`, `http://localhost:11434`) |
-| API Key | API key (OpenAI-compatible only; leave blank for local servers) |
-| Model | Model name to use for translation |
-| Temperature | Generation randomness. `0` = deterministic, `2` = maximum randomness. Default: `0` |
-| Prompt template | Custom prompt template. Use `{{text}}` for source text and `{{targetLang}}` for the target language name. Leave blank to use the built-in default |
+| LLM Provider | Custom / OpenAI (ChatGPT) / Claude (Anthropic) / Gemini (Google) / Grok (xAI) / Groq / OpenRouter / GitHub Models / Ollama (local) / LM Studio (local). Choosing a preset fills in the endpoint URL; settings per provider are remembered and restored when switching |
+| LLM API Endpoint URL | OpenAI-compatible base URL including the version path (e.g. `https://api.openai.com/v1`). Editable only for Custom |
+| LLM API Key | API key (leave blank for local servers) |
+| LLM Model | Model name. The ↻ button fetches the model list from the endpoint using the API key so you can pick one |
 
 ---
 

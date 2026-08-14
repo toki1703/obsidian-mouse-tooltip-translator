@@ -35,6 +35,15 @@
   font-size: 0.78em;
 }
 
+/* googleWebImage engine result */
+.mtt-tooltip .mtt-image,
+.mtt-trans-result .mtt-image {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 4px;
+}
+
 .mtt-tooltip .mtt-dict {
   display: flex;
   flex-direction: column;

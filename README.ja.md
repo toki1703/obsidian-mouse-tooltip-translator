@@ -27,9 +27,9 @@
 ブラウザに切り替える必要はありません。単語や文章にマウスを重ねるだけで、ポップアップが瞬時に意味を提示。Googleの辞書機能（POS）を活用し、品詞や詳細な意味、音写（ローマ字読み）まで表示します。
 
 ### 2. 用途別に使い分けるハイブリッド・エンジン
-**Speed** — 爆速のGoogle / Google GTX  
-**Precision** — 信頼のDeepL / Bing / Yandex / Papago  
-**Context** — 文脈を読むLLM（OpenAI互換 / Ollama / LM Studio）
+**Speed** — 爆速のGoogle / Google GTX / Google V2  
+**Precision** — 信頼のDeepL / Bing / Yandex / Papago / Baidu  
+**Context** — 文脈を読むLLM（OpenAI / Claude / Gemini / Grok / Groq / OpenRouter / GitHub Models / Ollama / LM Studio）
 
 ホバー・テキスト選択・ページ全体翻訳のそれぞれに、最適なエンジンを個別に割り当てられます。
 
@@ -120,39 +120,42 @@
 | Show detected language | 検出した翻訳元・翻訳先言語を表示 |
 | Skip same-language translations | 検出言語と翻訳先言語が一致する場合はツールチップを非表示 |
 | Skip identical translations (strict) | 翻訳結果が入力テキストと同一の場合も非表示 |
+| フォールバックエンジン | エンジンが失敗した場合に別のエンジン (Google / Bing / Baidu) で再試行し、失敗したエンジンを一時休止 |
 | Disable translation cache | 毎回APIを呼び出し、メモリキャッシュをバイパス |
 
 ---
 
 ## Translation Engines
 
-デフォルトエンジンはGoogleです。
+エンジン一覧はリファレンスChrome拡張 (v0.1.246) に完全に追従しています。デフォルトエンジンは google です。
 
 実験的なエンジンは、上流サービスの変更により動作しなくなる場合があります。
 
 | エンジン | 備考 |
 | --- | --- |
-| Google | デフォルト。辞書エントリと音写に対応 |
-| Google GTX | Googleの代替エンドポイント |
-| DeepL | 実験的なWebエンドポイント |
-| Bing | 実験的なWebエンドポイント |
-| Yandex | 実験的なWebエンドポイント |
-| Papago | 実験的なWebエンドポイント |
-| OpenAI-compatible API | OpenAI Chat Completions APIを実装した任意のサーバー。API URLとモデル名が必要。APIキーとカスタムプロンプトテンプレートも指定可能 |
-| Ollama | Ollamaによるローカル推論。Ollamaサーバーの起動とモデル名の指定が必要 |
-| LM Studio | LM Studioによるローカル推論。LM Studioサーバーの起動とモデル名の指定が必要 |
+| google | デフォルト。辞書エントリと音写に対応 |
+| bing | Webエンドポイント |
+| LLM - OpenAI / Claude / Gemini / Local | プロバイダープリセット付きのOpenAI互換Chat Completions（下記参照） |
+| deepl | 実験的なWebエンドポイント |
+| yandex | 実験的なWebエンドポイント |
+| baidu | 実験的なWebエンドポイント |
+| papago | 実験的なWebエンドポイント |
+| browser API | Chromium内蔵のTranslator API（Chrome 138+相当のランタイムが必要。Obsidianでは利用できない場合あり） |
+| googleWebImage | ホバーした単語のGoogle画像検索1件目を表示 |
+| googleGTX | Googleの代替エンドポイント |
+| googleWeb | Google辞書定義（"meaning:"）のスクレイプ |
+| googleV2 | Googleのbatchexecuteエンドポイント |
 
 ### LLMエンジン設定
 
-いずれかのコンテキストでLLMエンジン（OpenAI互換・Ollama・LM Studio）を選択すると、以下の追加設定が表示されます。
+いずれかのコンテキストでLLMエンジンを選択すると、以下の追加設定が表示されます。
 
 | 設定 | 説明 |
 | --- | --- |
-| API URL | サーバーのベースURL（例: `https://api.openai.com`、`http://localhost:11434`） |
-| API Key | APIキー（OpenAI互換のみ。ローカルサーバーの場合は空欄） |
-| Model | 翻訳に使用するモデル名 |
-| Temperature | 生成のランダム性。`0` = 決定論的、`2` = 最大ランダム。デフォルト: `0` |
-| プロンプトテンプレート | カスタムプロンプトテンプレート。`{{text}}` で原文、`{{targetLang}}` で翻訳先言語名を参照。空欄の場合は組み込みのデフォルトを使用 |
+| LLMプロバイダー | Custom / OpenAI (ChatGPT) / Claude (Anthropic) / Gemini (Google) / Grok (xAI) / Groq / OpenRouter / GitHub Models / Ollama (ローカル) / LM Studio (ローカル)。プリセットを選ぶとエンドポイントURLが自動入力され、プロバイダーごとの設定は切替時に保存・復元されます |
+| LLM APIエンドポイントURL | バージョンパスを含むOpenAI互換ベースURL（例: `https://api.openai.com/v1`）。Custom のみ編集可能 |
+| LLM APIキー | APIキー（ローカルサーバーの場合は空欄） |
+| LLMモデル | モデル名。↻ ボタンでAPIキーを使ってエンドポイントからモデル一覧を取得し、選択できます |
 
 ---
 

@@ -44,20 +44,18 @@ const DEFAULT_SETTINGS = {
   // When true and page translation is showing, hover shows the pre-translation text
   // of the paragraph instead of running the normal word/sentence tooltip.
   pageTranslationHoverOriginal: true,
-  // LLM engine settings
-  openaiCompatApiUrl: 'https://api.openai.com',
-  openaiCompatApiKey: '',
-  openaiCompatModel: 'gpt-4o-mini',
-  openaiCompatPrompt: '',
-  openaiCompatTemperature: 0,
-  ollamaApiUrl: 'http://localhost:11434',
-  ollamaModel: '',
-  ollamaPrompt: '',
-  ollamaTemperature: 0,
-  lmstudioApiUrl: 'http://localhost:1234',
-  lmstudioModel: '',
-  lmstudioPrompt: '',
-  lmstudioTemperature: 0,
+  // Integrated LLM engine (mirrors upstream localLlm, 0.1.246). The endpoint
+  // is an OpenAI-compatible base URL including the version path (…/v1).
+  llmProvider: 'custom',
+  llmApiEndpoint: '',
+  llmApiKey: '',
+  llmModel: '',
+  // Per-provider saved { apiEndpoint, apiKey, model }, restored when the user
+  // switches back to a provider (mirrors upstream llmProviderSettings).
+  llmProviderSettings: {},
+  // Retry a failed request with another engine (google/bing/baidu), temporarily
+  // benching the failed one (mirrors upstream fallbackTranslatorEngine).
+  fallbackTranslatorEngine: true,
 };
 
 // ── i18n ─────────────────────────────────────────────────────────────────────
@@ -141,23 +139,22 @@ const STRINGS = {
     engineSelectionDesc: 'Engine to use for text selection.',
     enginePage: 'Page translation engine',
     enginePageDesc: 'Engine to use for full-page translation.',
-    // LLM subsections
-    llmOpenai: 'OpenAI-compatible API',
-    llmOllama: 'Ollama',
-    llmLmstudio: 'LM Studio',
-    llmApiUrl: 'API URL',
-    llmApiUrlDescOpenai: 'Base URL (e.g. https://api.openai.com)',
-    llmApiUrlDescOllama: 'Ollama base URL (default: http://localhost:11434)',
-    llmApiUrlDescLmstudio: 'LM Studio base URL (default: http://localhost:1234)',
-    llmApiKey: 'API Key',
-    llmModel: 'Model',
-    llmModelDescOpenai: 'e.g. gpt-4o-mini, gpt-4o',
-    llmModelDescOllama: 'e.g. llama3, mistral, gemma3',
-    llmModelDescLmstudio: 'e.g. llama-3.2-3b-instruct',
-    llmTemp: 'Temperature',
-    llmTempDesc: 'Generation randomness. 0 = deterministic, 2 = maximum. Default: 0.0',
-    llmPrompt: 'Prompt template',
-    llmPromptDesc: 'Leave blank to use the default prompt. {{text}} is replaced with the source text, {{targetLang}} with the target language name.',
+    // Integrated LLM engine
+    llmSection: 'LLM Settings',
+    llmProvider: 'LLM Provider',
+    llmProviderDesc: 'Choosing a preset fills in the endpoint URL. Custom accepts any OpenAI-compatible endpoint.',
+    llmApiUrl: 'LLM API Endpoint URL',
+    llmApiUrlDesc: 'OpenAI-compatible base URL including the version path (e.g. https://api.openai.com/v1).',
+    llmApiKey: 'LLM API Key',
+    llmModel: 'LLM Model',
+    llmModelDesc: 'Model name. Click ↻ to fetch the model list from the endpoint using the API key.',
+    llmFetchModels: 'Fetch models from endpoint',
+    llmFetchNoEndpoint: 'API endpoint is empty',
+    llmFetchNoModels: 'No models returned by endpoint',
+    llmFetchFailed: (msg) => `Failed to fetch LLM models: ${msg}`,
+    llmFetchOk: (n) => `Fetched ${n} models — open the model field to pick one`,
+    fallbackEngine: 'Fallback translator engine',
+    fallbackEngineDesc: 'When the selected engine fails, retry the request with another engine (Google / Bing / Baidu), temporarily benching the failed one.',
     // Per-feature settings
     activeMode: 'Active mode',
     activeModeDesc: 'Select which Obsidian view mode to enable tooltip translation in.',
@@ -174,12 +171,6 @@ const STRINGS = {
     placementBelow: 'Below',
     pageHoverOrig: 'Show original paragraph on hover during page translation',
     pageHoverOrigDesc: 'While page translation is active, disable normal hover/selection translation and show the pre-translation text of the hovered paragraph instead.',
-    // Engine dropdown labels (for LLM engines)
-    engOpenaiCompat: 'OpenAI Compatible API',
-    engOllama: 'Ollama (local)',
-    engLmstudio: 'LM Studio (local)',
-    // Errors
-    llmModelRequired: 'Model name is required. Please enter it in the plugin settings.',
     // Tooltip contents
     showDict: 'Show dictionary (POS) for single words',
     showDictDesc: 'When Google returns a bilingual dictionary, show "noun: ..." / "verb: ..." lines instead of the plain translation. Other engines do not return POS info.',
@@ -259,18 +250,21 @@ const STRINGS = {
     engineSelectionDesc: 'テキストを選択したときに使うエンジン',
     enginePage: 'ページ翻訳エンジン',
     enginePageDesc: 'ページ全体を翻訳するときに使うエンジン',
-    llmOpenai: 'OpenAI互換API設定',
-    llmOllama: 'Ollama設定',
-    llmLmstudio: 'LM Studio設定',
-    llmApiUrlDescOpenai: 'ベースURL（例: https://api.openai.com）',
-    llmApiUrlDescOllama: 'OllamaのベースURL（デフォルト: http://localhost:11434）',
-    llmApiUrlDescLmstudio: 'LM StudioのベースURL（デフォルト: http://localhost:1234）',
-    llmModelDescOpenai: '例: gpt-4o-mini, gpt-4o',
-    llmModelDescOllama: '例: llama3, mistral, gemma3',
-    llmModelDescLmstudio: '例: llama-3.2-3b-instruct',
-    llmTempDesc: '生成のランダム性。0 = 決定論的、2 = 最大ランダム。既定値: 0.0',
-    llmPrompt: 'プロンプトテンプレート',
-    llmPromptDesc: '空欄の場合はデフォルトのプロンプトを使用。{{text}} に原文、{{targetLang}} に翻訳先言語名が挿入されます。',
+    llmSection: 'LLM設定',
+    llmProvider: 'LLMプロバイダー',
+    llmProviderDesc: 'プリセットを選ぶとエンドポイントURLが自動入力されます。Custom では任意のOpenAI互換エンドポイントを指定できます。',
+    llmApiUrl: 'LLM APIエンドポイントURL',
+    llmApiUrlDesc: 'バージョンパスを含むOpenAI互換ベースURL（例: https://api.openai.com/v1）',
+    llmApiKey: 'LLM APIキー',
+    llmModel: 'LLMモデル',
+    llmModelDesc: 'モデル名。↻ ボタンでAPIキーを使ってエンドポイントからモデル一覧を取得できます。',
+    llmFetchModels: 'エンドポイントからモデル一覧を取得',
+    llmFetchNoEndpoint: 'APIエンドポイントが未入力です',
+    llmFetchNoModels: 'エンドポイントからモデルが返されませんでした',
+    llmFetchFailed: (msg) => `モデル一覧の取得に失敗しました: ${msg}`,
+    llmFetchOk: (n) => `${n}件のモデルを取得しました — モデル欄をクリックして選択できます`,
+    fallbackEngine: 'フォールバックエンジン',
+    fallbackEngineDesc: '選択中のエンジンが失敗した場合、別のエンジン (Google / Bing / Baidu) でそのリクエストを再試行し、失敗したエンジンを一時的に休止させます。',
     activeMode: '適用するモード',
     activeModeDesc: 'ツールチップ翻訳を有効にするObsidianのビューモードを選択します。',
     modeBoth: '編集モード + リーディングモード',
@@ -278,10 +272,6 @@ const STRINGS = {
     modeReading: 'リーディングモードのみ',
     pageHoverOrig: '翻訳表示中は段落原文をホバー表示',
     pageHoverOrigDesc: 'ページ翻訳の結果を表示しているとき、通常のホバー翻訳・テキスト選択翻訳を無効にし、ホバーした段落の翻訳前テキストをツールチップに表示します。',
-    engOpenaiCompat: 'OpenAI互換API',
-    engOllama: 'Ollama (ローカル)',
-    engLmstudio: 'LM Studio (ローカル)',
-    llmModelRequired: 'モデル名が未設定です。設定から入力してください。',
     masterEnabled: '有効',
     masterEnabledDesc: '翻訳機能のマスタースイッチ。',
     masterRestrict: 'ノートコンテンツ内に制限',
@@ -509,6 +499,49 @@ async function httpJson(method, url, opts) {
   try { return res.json; } catch { return JSON.parse(res.text); }
 }
 
+// Local language detection for engines whose endpoint doesn't detect
+// (googleWeb / googleWebImage). The reference uses browser.i18n.detectLanguage,
+// which doesn't exist in Obsidian: prefer Chromium's LanguageDetector API when
+// present, else fall back to a rough Unicode-script heuristic.
+let _langDetector = null;
+async function detectLangLocal(text) {
+  try {
+    if (typeof LanguageDetector !== 'undefined') {
+      if (!_langDetector) _langDetector = await LanguageDetector.create();
+      const results = await _langDetector.detect(text);
+      let lang = results?.[0]?.detectedLanguage;
+      if (lang) return lang === 'zh' ? 'zh-CN' : lang;
+    }
+  } catch { /* fall through to heuristic */ }
+  if (/[぀-ヿ]/.test(text)) return 'ja';   // hiragana / katakana
+  if (/[가-힯]/.test(text)) return 'ko';   // hangul
+  if (/[一-鿿]/.test(text)) return 'zh-CN'; // CJK ideographs (after kana check)
+  if (/[Ѐ-ӿ]/.test(text)) return 'ru';
+  if (/[؀-ۿ]/.test(text)) return 'ar';
+  if (/[฀-๿]/.test(text)) return 'th';
+  if (/[֐-׿]/.test(text)) return 'he';
+  if (/[Ͱ-Ͽ]/.test(text)) return 'el';
+  if (/[ऀ-ॿ]/.test(text)) return 'hi';
+  return 'en';
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+// Fetch an image and return it as a data: URL (mirrors upstream util.getBase64).
+async function getBase64(url) {
+  const res = await http('GET', url);
+  const type = (res.headers && (res.headers['content-type'] || res.headers['Content-Type'])) || 'image/jpeg';
+  return `data:${type};base64,${arrayBufferToBase64(res.arrayBuffer)}`;
+}
+
 // ---- Base translator (mirrors module 2760 of Chrome ext) ----
 class BaseTranslator {
   static langCodeJson = {};
@@ -536,6 +569,7 @@ class BaseTranslator {
         targetLang: this.decodeLang(etgt),
         transliteration: wrapped.transliteration || '',
         dict: Array.isArray(wrapped.dict) && wrapped.dict.length ? wrapped.dict : null,
+        imageUrl: wrapped.imageUrl || null,
       };
     } catch (e) {
       console.warn('[mtt]', this.name || 'translator', 'failed:', e);
@@ -836,110 +870,388 @@ class PapagoEngine extends BaseTranslator {
   }
 }
 
-// ---- LLM engines (OpenAI-compatible chat completions) ----
-class LLMEngine extends BaseTranslator {
-  static langCodeJson = {};
-
-  static _buildPrompt(text, tgt, template) {
-    const tgtName = COMMON_LANGS[tgt] || tgt;
-    if (template && template.trim()) {
-      return template.replace(/\{\{text\}\}/g, text).replace(/\{\{targetLang\}\}/g, tgtName);
-    }
-    return `Translate the following text to ${tgtName}. Output only the translated text, nothing else.\n\n${text}`;
-  }
-
-  static async _chatRequest(text, etgt, { url, model, apiKey, prompt, temperature }) {
-    if (!model) throw new Error(i18n().llmModelRequired);
-    const endpoint = `${(url || '').replace(/\/+$/, '')}/v1/chat/completions`;
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-    return http('POST', endpoint, {
-      headers,
-      body: {
-        model,
-        messages: [{ role: 'user', content: this._buildPrompt(text, etgt, prompt) }],
-        temperature: temperature ?? 0,
+// ---- Baidu (fanyi.baidu.com/transapi) — mirrors upstream baidu.js ----
+class BaiduEngine extends BaseTranslator {
+  static langCodeJson = {
+    en: 'en', ja: 'jp', ko: 'kor', fr: 'fra', es: 'spa', th: 'th', ar: 'ara',
+    ru: 'ru', pt: 'pt', de: 'de', it: 'it', el: 'el', nl: 'nl', pl: 'pl',
+    bg: 'bul', et: 'est', da: 'dan', fi: 'fin', cs: 'cs', ro: 'rom', sl: 'slo',
+    sv: 'swe', hu: 'hu', vi: 'vie', 'zh-CN': 'zh', 'zh-TW': 'cht',
+  };
+  static async requestTranslate(text, src, tgt) {
+    // Browser-shaped headers; the endpoint may still reject sessions without
+    // its JS-set anti-bot state (errno 1022) — the fallback engine covers that.
+    return await httpJson('POST', 'https://fanyi.baidu.com/transapi', {
+      searchParams: { from: src, to: tgt },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': (typeof navigator !== 'undefined' && navigator.userAgent) || 'Mozilla/5.0',
+        Referer: 'https://fanyi.baidu.com/',
       },
+      body: new URLSearchParams({
+        from: src,
+        to: tgt,
+        query: text,
+        source: 'txt',
+        isAi: 'false',
+        sseStartTime: String(Date.now()),
+        reference: '',
+        corpusIds: '',
+        needPhonetic: 'false',
+        domain: 'common',
+        detectLang: '',
+        milliTimestamp: String(Date.now()),
+      }),
     });
   }
-
-  static async requestTranslate() { throw new Error('not implemented'); }
-
-  static async wrapResponse(raw) {
-    const content = raw?.json?.choices?.[0]?.message?.content?.trim();
-    if (!content) return null;
-    return { targetText: content };
+  static async wrapResponse(resp) {
+    const targetText = resp?.data?.[0]?.result
+      ?.map((t) => t?.[1])
+      .filter(Boolean)
+      .join(' ');
+    if (!targetText) return null;
+    return { targetText, detectedLang: resp.from, transliteration: '' };
   }
 }
 
-class OpenAICompatEngine extends LLMEngine {
-  static async requestTranslate(text, _esrc, etgt, settings) {
-    return this._chatRequest(text, etgt, {
-      url: settings?.openaiCompatApiUrl || 'https://api.openai.com',
-      model: settings?.openaiCompatModel || 'gpt-4o-mini',
-      apiKey: settings?.openaiCompatApiKey || '',
-      prompt: settings?.openaiCompatPrompt || '',
-      temperature: settings?.openaiCompatTemperature ?? 0,
+// ---- Browser API (Chromium built-in Translator / LanguageDetector) ----
+// Mirrors upstream browserAPI.js. Needs the Translator API (Chrome 138+ /
+// matching Electron); unavailable runtimes just yield "(no translation)".
+class BrowserAPIEngine extends BaseTranslator {
+  static detector = null;
+  static translators = {};
+  static async requestTranslate(text, src, tgt) {
+    if (typeof Translator === 'undefined' || typeof LanguageDetector === 'undefined') {
+      throw new Error('Chrome Translator API not available. Requires Chrome 138+');
+    }
+    let detectedLang = src;
+    if (src === 'auto') {
+      if (!this.detector) this.detector = await LanguageDetector.create();
+      const results = await this.detector.detect(text);
+      if (results && results.length > 0 && results[0].confidence > 0.5) {
+        detectedLang = results[0].detectedLanguage;
+      } else {
+        throw new Error('Language detection failed or confidence too low.');
+      }
+    }
+    // Same language: echo the source like upstream (skipped result); the
+    // skip-same-language option then hides the tooltip.
+    if (detectedLang === tgt) {
+      return { targetText: text, detectedLang };
+    }
+    const availability = await Translator.availability({
+      sourceLanguage: detectedLang,
+      targetLanguage: tgt,
     });
+    if (availability === 'unavailable') {
+      throw new Error(`Translator not available for ${detectedLang} to ${tgt}.`);
+    }
+    const key = `${detectedLang}-${tgt}`;
+    if (!this.translators[key]) {
+      this.translators[key] = await Translator.create({
+        sourceLanguage: detectedLang,
+        targetLanguage: tgt,
+      });
+    }
+    const targetText = await this.translators[key].translate(text);
+    return { targetText, detectedLang };
+  }
+  static async wrapResponse(res) {
+    return { targetText: res.targetText, detectedLang: res.detectedLang };
   }
 }
 
-class OllamaEngine extends LLMEngine {
-  static async requestTranslate(text, _esrc, etgt, settings) {
-    return this._chatRequest(text, etgt, {
-      url: settings?.ollamaApiUrl || 'http://localhost:11434',
-      model: settings?.ollamaModel || '',
-      apiKey: '',
-      prompt: settings?.ollamaPrompt || '',
-      temperature: settings?.ollamaTemperature ?? 0,
+// ---- Google Web (google search "meaning:" dictionary scrape) ----
+// Mirrors upstream googleWeb.js: returns the English dictionary definition of
+// the hovered word, not a translation.
+class GoogleWebEngine extends BaseTranslator {
+  static async requestTranslate(text) {
+    const lang = 'en';
+    return await httpGetText('https://www.google.com/search', {
+      searchParams: { q: `meaning:${text}`, hl: lang, lr: `lang_${lang}` },
     });
+  }
+  static async wrapResponse(html, text) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const dictAll = doc.querySelector('.eQJLDd');
+    const targetText = dictAll?.firstElementChild
+      ?.querySelector("[data-dobid='dfn']")?.textContent || '';
+    if (!targetText) return null;
+    return { targetText, detectedLang: await detectLangLocal(text), transliteration: '' };
   }
 }
 
-class LMStudioEngine extends LLMEngine {
-  static async requestTranslate(text, _esrc, etgt, settings) {
-    return this._chatRequest(text, etgt, {
-      url: settings?.lmstudioApiUrl || 'http://localhost:1234',
-      model: settings?.lmstudioModel || '',
-      apiKey: 'lm-studio',
-      prompt: settings?.lmstudioPrompt || '',
-      temperature: settings?.lmstudioTemperature ?? 0,
+// ---- Google Web Image (google image search) — mirrors googleWebImage.js ----
+// "Translates" a word into its first image search hit, shown in the tooltip.
+class GoogleWebImageEngine extends BaseTranslator {
+  static async requestTranslate(text) {
+    return await httpGetText('https://www.google.com/search', {
+      searchParams: { q: text, tbm: 'isch' },
     });
+  }
+  static async wrapResponse(html, text) {
+    const m = html.match(/google\.ldi=(\{[^{]+\});/);
+    if (!m) return null;
+    const urlJSON = JSON.parse(m[1]);
+    const imageUrl = urlJSON[Object.keys(urlJSON)[0]];
+    if (!imageUrl) return null;
+    const base64Url = await getBase64(imageUrl);
+    return {
+      targetText: 'image',
+      detectedLang: await detectLangLocal(text),
+      transliteration: '',
+      imageUrl: base64Url,
+    };
   }
 }
 
-const ENGINE_CLASSES = {
-  google: GoogleEngine,
-  googleGTX: GoogleGTXEngine,
-  deepl: DeepLEngine,
-  bing: BingEngine,
-  yandex: YandexEngine,
-  papago: PapagoEngine,
-  openaiCompat: OpenAICompatEngine,
-  ollama: OllamaEngine,
-  lmstudio: LMStudioEngine,
+// ---- Google V2 (batchexecute MkEWBc) — mirrors upstream googleV2.js ----
+let _googleV2Token = null;
+const GOOGLE_V2_TOKEN_TTL = 60 * 60 * 1000; // 1 hour
+async function getGoogleV2Token() {
+  if (_googleV2Token && _googleV2Token.time + GOOGLE_V2_TOKEN_TTL > Date.now()) {
+    return _googleV2Token;
+  }
+  const res = await httpGetText('https://translate.google.com');
+  const sid = res.match(/"FdrFJe":"(.*?)"/)[1];
+  const bl = res.match(/"cfb2h":"(.*?)"/)[1];
+  const at = res.match(/"SNlM0e":"(.*?)"/)?.[1] || '';
+  _googleV2Token = { sid, bl, at, time: Date.now() };
+  return _googleV2Token;
+}
+
+class GoogleV2Engine extends BaseTranslator {
+  static async requestTranslate(text, src, tgt) {
+    const { sid, bl, at } = await getGoogleV2Token();
+    const req = JSON.stringify([
+      [
+        [
+          'MkEWBc',
+          JSON.stringify([[text, src, tgt, true], [null]]),
+          null,
+          'generic',
+        ],
+      ],
+    ]);
+    const res = await http('POST', 'https://translate.google.com/_/TranslateWebserverUi/data/batchexecute', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      searchParams: {
+        rpcids: 'MkEWBc',
+        'source-path': '/',
+        'f.sid': sid,
+        bl,
+        hl: 'ko',
+        'soc-app': 1,
+        'soc-platform': 1,
+        'soc-device': 1,
+        _reqid: Math.floor(10000 + 10000 * Math.random()),
+        rt: 'c',
+      },
+      body: new URLSearchParams({ 'f.req': req, at }),
+    });
+    return res.text;
+  }
+  static async wrapResponse(res) {
+    const json = JSON.parse(JSON.parse(/\[.*\]/.exec(res))[0][2]);
+    // Each chunk already carries its own trailing space (same as the gtx
+    // endpoint's sentences[].trans), so join with '' — ' ' doubles the space
+    // between sentences (upstream fix, 0.1.246).
+    const targetText = json[1][0][0][5]
+      .map((t) => t?.[0])
+      .filter(Boolean)
+      .join('');
+    return {
+      targetText,
+      detectedLang: json[0][2],
+      transliteration: json[1][0][0][1],
+    };
+  }
+}
+
+// ---- Integrated LLM engine (mirrors upstream localLlm.js, 0.1.246) ----
+// One OpenAI-compatible engine covering hosted providers and local servers;
+// the provider preset only fills in the endpoint URL.
+const LLM_PROVIDER_ENDPOINTS = {
+  custom: '',
+  openai: 'https://api.openai.com/v1',
+  claude: 'https://api.anthropic.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  grok: 'https://api.x.ai/v1',
+  groq: 'https://api.groq.com/openai/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+  githubModels: 'https://models.inference.ai.azure.com',
+  ollama: 'http://localhost:11434/v1',
+  lmstudio: 'http://localhost:1234/v1',
 };
-
-const ENGINE_LABELS = {
-  google: 'Google',
-  googleGTX: 'Google (translate_a/t)',
-  deepl: 'DeepL (web, experimental)',
-  bing: 'Bing (experimental)',
-  yandex: 'Yandex (experimental)',
-  papago: 'Papago (experimental)',
-  openaiCompat: 'OpenAI Compatible API',
+const LLM_PROVIDER_LABELS = {
+  custom: 'Custom',
+  openai: 'OpenAI (ChatGPT)',
+  claude: 'Claude (Anthropic)',
+  gemini: 'Gemini (Google, free tier available)',
+  grok: 'Grok (xAI)',
+  groq: 'Groq (free, fast Llama)',
+  openrouter: 'OpenRouter (free models with :free suffix)',
+  githubModels: 'GitHub Models (free with GitHub token)',
   ollama: 'Ollama (local)',
   lmstudio: 'LM Studio (local)',
 };
 
-const LLM_ENGINE_KEYS = new Set(['openaiCompat', 'ollama', 'lmstudio']);
+function llmLangName(code) {
+  return COMMON_LANGS[code] || code;
+}
+
+// last config we already warned about — only warn again when it changes
+let _llmLastWarnConfigKey = null;
+
+class LocalLlmEngine extends BaseTranslator {
+  static async translate(text, src, tgt, settings) {
+    const endpoint = settings?.llmApiEndpoint || '';
+    const model = settings?.llmModel || '';
+    if (!endpoint || !model) {
+      const key = `${endpoint}|${model}`;
+      if (_llmLastWarnConfigKey !== key) {
+        console.warn('[mtt] localLlm: API endpoint or model not configured');
+        _llmLastWarnConfigKey = key;
+      }
+      return null;
+    }
+    return super.translate(text, src, tgt, settings);
+  }
+
+  static async requestTranslate(text, src, tgt, settings) {
+    const endpoint = (settings?.llmApiEndpoint || '').replace(/\/$/, '');
+    const apiKey = settings?.llmApiKey || '';
+    const model = settings?.llmModel || '';
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const target = llmLangName(tgt);
+    const instruction = src && src !== 'auto'
+      ? `Translate from ${llmLangName(src)} to ${target}.`
+      : `Translate to ${target}.`;
+
+    return await httpJson('POST', `${endpoint}/chat/completions`, {
+      headers,
+      body: {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'Reply only: source ISO 639-1 code, a tab, then the translation.',
+          },
+          { role: 'user', content: `${instruction}\n<text>\n${text}\n</text>` },
+        ],
+        temperature: 0.1,
+      },
+    });
+  }
+
+  static async wrapResponse(res) {
+    const raw = res?.choices?.[0]?.message?.content?.trim() || '';
+    // expected "<iso code>\t<translation>"; parse tolerantly — if it doesn't
+    // match (model ignored the format), treat the whole reply as the translation
+    // so nothing regresses. detectedLang lets same-language skip work.
+    let detectedLang = '';
+    let targetText = raw;
+    const match = raw.match(/^([a-zA-Z]{2,3}(?:-[a-zA-Z]{2,4})?)[\t\n]+([\s\S]+)$/);
+    if (match) {
+      detectedLang = match[1].toLowerCase();
+      targetText = match[2].trim();
+    }
+    if (!targetText) return null;
+    return { targetText, detectedLang, transliteration: '' };
+  }
+
+  // Accepts OpenAI ({data:[{id}]}) and Ollama ({models:[{name}]}) shapes;
+  // other gateways may use {model:"..."} which we also try.
+  static async getModels(endpoint, apiKey) {
+    if (!endpoint) throw new Error('LLM API endpoint is not set');
+    const headers = {};
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const res = await httpJson('GET', `${endpoint.replace(/\/$/, '')}/models`, { headers });
+    return (res.data || res.models || [])
+      .map((m) => m.id || m.name || m.model)
+      .filter(Boolean);
+  }
+}
+
+// ---- Engine registry — order and labels mirror the reference dropdown ----
+const ENGINE_CLASSES = {
+  google: GoogleEngine,
+  bing: BingEngine,
+  localLlm: LocalLlmEngine,
+  deepl: DeepLEngine,
+  yandex: YandexEngine,
+  baidu: BaiduEngine,
+  papago: PapagoEngine,
+  browserAPI: BrowserAPIEngine,
+  googleWebImage: GoogleWebImageEngine,
+  googleGTX: GoogleGTXEngine,
+  googleWeb: GoogleWebEngine,
+  googleV2: GoogleV2Engine,
+};
+
+const ENGINE_LABELS = {
+  google: 'google',
+  bing: 'bing',
+  localLlm: 'LLM - OpenAI / Claude / Gemini / Local (Experimental)',
+  deepl: 'deepl (Experimental)',
+  yandex: 'yandex (Experimental)',
+  baidu: 'baidu (Experimental)',
+  papago: 'papago (Experimental)',
+  browserAPI: 'browser API (Experimental)',
+  googleWebImage: 'googleWebImage (Experimental)',
+  googleGTX: 'googleGTX (Experimental)',
+  googleWeb: 'googleWeb (Experimental)',
+  googleV2: 'googleV2 (Experimental)',
+};
+
+// ---- Engine fallback (mirrors upstream translateCaller.js, 0.1.246) ----
+// When the selected engine fails, bench it (1 h × crash count) and retry with
+// the least-recently-benched of google/bing/baidu.
+const FALLBACK_ACT_LIST = ['google', 'bing', 'baidu', 'papago', 'deepl', 'yandex'];
+const FALLBACK_SWAP_LIST = ['google', 'bing', 'baidu'];
+const FALLBACK_WAIT_TIME = 1000 * 60 * 60; // 1 hour
+const FALLBACK_CRASH_TIME_INIT = { google: 1, bing: 2, baidu: 3 };
+let fallbackCrashTime = { ...FALLBACK_CRASH_TIME_INIT };
+let fallbackCrashCount = {};
+
+async function translateWithFallback(text, src, tgt, engine, settings, retry = 0) {
+  // Reset crash times if all engines are in cooldown
+  if (retry === 0 && Object.values(fallbackCrashTime).every((t) => Date.now() < t)) {
+    fallbackCrashTime = { ...FALLBACK_CRASH_TIME_INIT };
+    fallbackCrashCount = {};
+  }
+  if (retry > FALLBACK_SWAP_LIST.length) return null;
+
+  fallbackCrashCount[engine] ??= 0;
+  fallbackCrashTime[engine] ??= 0;
+
+  const cls = ENGINE_CLASSES[engine] || ENGINE_CLASSES.google;
+  const isFallbackEnabled = settings?.fallbackTranslatorEngine !== false
+    && FALLBACK_ACT_LIST.includes(engine);
+  const swapEngine = Object.keys(fallbackCrashTime)
+    .filter((e) => FALLBACK_SWAP_LIST.includes(e) && e !== engine)
+    .sort((a, b) => fallbackCrashTime[a] - fallbackCrashTime[b])[0];
+
+  let result = (fallbackCrashTime[engine] < Date.now() || !isFallbackEnabled)
+    ? await cls.translate(text, src, tgt, settings)
+    : null;
+
+  if (isFallbackEnabled && !result) {
+    fallbackCrashCount[engine]++;
+    fallbackCrashTime[engine] = Date.now() + FALLBACK_WAIT_TIME * fallbackCrashCount[engine];
+    result = await translateWithFallback(text, src, tgt, swapEngine, settings, retry + 1);
+  }
+  return result;
+}
 
 const ENGINES = Object.fromEntries(
-  Object.entries(ENGINE_CLASSES).map(([k, C]) => [
+  Object.keys(ENGINE_CLASSES).map((k) => [
     k,
     {
       label: ENGINE_LABELS[k] || k,
-      translate: (text, src, tgt, settings) => C.translate(text, src, tgt, settings),
+      translate: (text, src, tgt, settings) => translateWithFallback(text, src, tgt, k, settings),
     },
   ])
 );
@@ -1201,7 +1513,13 @@ class TooltipManager {
     const showDict = this.plugin.settings.showDictionary
       && Array.isArray(result.dict) && result.dict.length > 0;
 
-    if (showDict) {
+    if (result.imageUrl) {
+      // googleWebImage engine: the "translation" is an image (data: URL).
+      const img = document.createElement('img');
+      img.className = 'mtt-image';
+      img.src = result.imageUrl;
+      el.appendChild(img);
+    } else if (showDict) {
       const dictWrap = document.createElement('div');
       dictWrap.className = 'mtt-dict';
       for (const { pos, terms } of result.dict) {
@@ -1566,10 +1884,13 @@ class TranslationView extends ItemView {
       return;
     }
 
-    const { targetText, sourceLang, targetLang, dict, transliteration } = this._result;
+    const { targetText, sourceLang, targetLang, dict, transliteration, imageUrl } = this._result;
     const showDict = Array.isArray(dict) && dict.length > 0;
 
-    if (showDict) {
+    if (imageUrl) {
+      const img = el.createEl('img', { cls: 'mtt-image' });
+      img.src = imageUrl;
+    } else if (showDict) {
       const dictWrap = el.createEl('div', { cls: 'mtt-trans-dict' });
       for (const { pos, terms } of dict) {
         const row = dictWrap.createEl('div', { cls: 'mtt-trans-dict-row' });
@@ -2148,6 +2469,58 @@ module.exports = class MouseTooltipPlugin extends Plugin {
       if (!loaded.selectionEngine) this.settings.selectionEngine = loaded.engine;
       if (!loaded.pageEngine) this.settings.pageEngine = loaded.engine;
     }
+    // Migrate the pre-integrated LLM engines (openaiCompat / ollama / lmstudio)
+    // to the single localLlm engine (reference 0.1.246): engine selections
+    // become 'localLlm', old per-engine URL/key/model seed llmProviderSettings,
+    // and the first migrated engine decides the active provider. Runs once —
+    // after the first save, llmProviderSettings exists in the stored data.
+    if (loaded && !loaded.llmProviderSettings) {
+      const toV1 = (u, dflt) => `${String(u || dflt).replace(/\/+$/, '')}/v1`;
+      const openaiUrl = loaded.openaiCompatApiUrl || 'https://api.openai.com';
+      const legacyProviders = {
+        openaiCompat: /(^|\/\/)api\.openai\.com/.test(openaiUrl) ? 'openai' : 'custom',
+        ollama: 'ollama',
+        lmstudio: 'lmstudio',
+      };
+      const seeds = {};
+      if (loaded.openaiCompatModel || loaded.openaiCompatApiKey) {
+        seeds[legacyProviders.openaiCompat] = {
+          apiEndpoint: toV1(openaiUrl, 'https://api.openai.com'),
+          apiKey: loaded.openaiCompatApiKey || '',
+          model: loaded.openaiCompatModel || '',
+        };
+      }
+      if (loaded.ollamaModel) {
+        seeds.ollama = {
+          apiEndpoint: toV1(loaded.ollamaApiUrl, 'http://localhost:11434'),
+          apiKey: '',
+          model: loaded.ollamaModel,
+        };
+      }
+      if (loaded.lmstudioModel) {
+        seeds.lmstudio = {
+          apiEndpoint: toV1(loaded.lmstudioApiUrl, 'http://localhost:1234'),
+          apiKey: '',
+          model: loaded.lmstudioModel,
+        };
+      }
+      let migratedProvider = null;
+      for (const key of ['mouseoverEngine', 'selectionEngine', 'pageEngine']) {
+        const prov = legacyProviders[this.settings[key]];
+        if (!prov) continue;
+        this.settings[key] = 'localLlm';
+        migratedProvider = migratedProvider || prov;
+      }
+      if (Object.keys(seeds).length) this.settings.llmProviderSettings = seeds;
+      if (migratedProvider) {
+        this.settings.llmProvider = migratedProvider;
+        const cfg = seeds[migratedProvider];
+        this.settings.llmApiEndpoint = cfg ? cfg.apiEndpoint
+          : (migratedProvider === 'custom' ? '' : LLM_PROVIDER_ENDPOINTS[migratedProvider] || '');
+        this.settings.llmApiKey = cfg ? cfg.apiKey : '';
+        this.settings.llmModel = cfg ? cfg.model : '';
+      }
+    }
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -2159,7 +2532,71 @@ class MouseTooltipSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this._llmModels = [];
+    this._llmModelDatalist = null;
   }
+
+  // Switching provider saves the previous provider's endpoint/key/model and
+  // restores the new one's (or prefills its preset endpoint). Mirrors the
+  // reference's applyLlmProviderPreset.
+  _applyLlmProviderPreset(provider) {
+    const st = this.plugin.settings;
+    const prev = st.llmProvider || 'custom';
+    if (provider === prev) return;
+    const saved = { ...(st.llmProviderSettings || {}) };
+    saved[prev] = {
+      apiEndpoint: st.llmApiEndpoint || '',
+      apiKey: st.llmApiKey || '',
+      model: st.llmModel || '',
+    };
+    st.llmProviderSettings = saved;
+    const restored = saved[provider];
+    if (restored) {
+      st.llmApiEndpoint = restored.apiEndpoint || '';
+      st.llmApiKey = restored.apiKey || '';
+      st.llmModel = restored.model || '';
+    } else {
+      st.llmApiEndpoint = provider === 'custom' ? '' : (LLM_PROVIDER_ENDPOINTS[provider] || '');
+      st.llmApiKey = '';
+      st.llmModel = '';
+    }
+    st.llmProvider = provider;
+    this._llmModels = [];
+  }
+
+  async _fetchLlmModels() {
+    const s = i18n();
+    const endpoint = this.plugin.settings.llmApiEndpoint;
+    if (!endpoint) {
+      new Notice(s.llmFetchFailed(s.llmFetchNoEndpoint));
+      return;
+    }
+    try {
+      const models = await LocalLlmEngine.getModels(endpoint, this.plugin.settings.llmApiKey);
+      if (!models.length) {
+        new Notice(s.llmFetchFailed(s.llmFetchNoModels));
+        return;
+      }
+      this._llmModels = models;
+      this._fillLlmModelDatalist();
+      new Notice(s.llmFetchOk(models.length));
+    } catch (e) {
+      console.error('[mtt] Failed to fetch LLM models:', e);
+      new Notice(s.llmFetchFailed(e?.message || String(e)));
+    }
+  }
+
+  _fillLlmModelDatalist() {
+    const dl = this._llmModelDatalist;
+    if (!dl) return;
+    dl.textContent = '';
+    for (const m of this._llmModels || []) {
+      const opt = document.createElement('option');
+      opt.value = m;
+      dl.appendChild(opt);
+    }
+  }
+
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -2321,13 +2758,12 @@ class MouseTooltipSettingTab extends PluginSettingTab {
       { key: 'selectionEngine', name: s.engineSelection, desc: s.engineSelectionDesc },
       { key: 'pageEngine',      name: s.enginePage,      desc: s.enginePageDesc },
     ];
-    const llmEngineLabels = { openaiCompat: s.engOpenaiCompat, ollama: s.engOllama, lmstudio: s.engLmstudio };
     for (const { key, name, desc } of engineConfigs) {
       new Setting(containerEl)
         .setName(name)
         .setDesc(desc)
         .addDropdown((d) => {
-          for (const [k, v] of Object.entries(ENGINES)) d.addOption(k, llmEngineLabels[k] ?? v.label);
+          for (const [k, v] of Object.entries(ENGINES)) d.addOption(k, v.label);
           d.setValue(this.plugin.settings[key] || 'google')
             .onChange(async (v) => {
               this.plugin.settings[key] = v;
@@ -2337,74 +2773,76 @@ class MouseTooltipSettingTab extends PluginSettingTab {
         });
     }
 
-    // LLM engine settings (shown once per unique LLM engine in use)
-    const usedLLMs = [...new Set(
-      [this.plugin.settings.mouseoverEngine, this.plugin.settings.selectionEngine, this.plugin.settings.pageEngine]
-        .filter(e => LLM_ENGINE_KEYS.has(e))
-    )];
-    for (const eng of usedLLMs) {
-      containerEl.createEl('h4', { text: eng === 'openaiCompat' ? s.llmOpenai
-        : eng === 'ollama' ? s.llmOllama : s.llmLmstudio });
+    new Setting(containerEl)
+      .setName(s.fallbackEngine)
+      .setDesc(s.fallbackEngineDesc)
+      .addToggle((t) => t
+        .setValue(this.plugin.settings.fallbackTranslatorEngine !== false)
+        .onChange(async (v) => { this.plugin.settings.fallbackTranslatorEngine = v; await this.plugin.saveSettings(); }));
+
+    // Integrated LLM settings — shown while any context uses the LLM engine
+    // (mirrors the reference's visibleWhen: translatorVendor === "localLlm").
+    const usesLlm = [
+      this.plugin.settings.mouseoverEngine,
+      this.plugin.settings.selectionEngine,
+      this.plugin.settings.pageEngine,
+    ].includes('localLlm');
+    if (usesLlm) {
+      containerEl.createEl('h4', { text: s.llmSection });
+
+      new Setting(containerEl)
+        .setName(s.llmProvider)
+        .setDesc(s.llmProviderDesc)
+        .addDropdown((d) => {
+          for (const [k, label] of Object.entries(LLM_PROVIDER_LABELS)) d.addOption(k, label);
+          d.setValue(this.plugin.settings.llmProvider || 'custom')
+            .onChange(async (v) => {
+              this._applyLlmProviderPreset(v);
+              await this.plugin.saveSettings();
+              this.display();
+            });
+        });
 
       new Setting(containerEl)
         .setName(s.llmApiUrl)
-        .setDesc(eng === 'openaiCompat' ? s.llmApiUrlDescOpenai
-          : eng === 'ollama' ? s.llmApiUrlDescOllama : s.llmApiUrlDescLmstudio)
+        .setDesc(s.llmApiUrlDesc)
         .addText((t) => {
-          const urlKey = eng === 'openaiCompat' ? 'openaiCompatApiUrl'
-            : eng === 'ollama' ? 'ollamaApiUrl' : 'lmstudioApiUrl';
-          t.setPlaceholder(eng === 'openaiCompat' ? 'https://api.openai.com'
-            : eng === 'ollama' ? 'http://localhost:11434' : 'http://localhost:1234')
-            .setValue(this.plugin.settings[urlKey] || '')
-            .onChange(async (v) => { this.plugin.settings[urlKey] = v.trim(); await this.plugin.saveSettings(); });
+          t.setPlaceholder('http://localhost:11434/v1')
+            .setValue(this.plugin.settings.llmApiEndpoint || '')
+            .onChange(async (v) => { this.plugin.settings.llmApiEndpoint = v.trim(); await this.plugin.saveSettings(); });
+          // Preset endpoints are fixed; only Custom is editable (mirrors the
+          // reference's readonlyWhen on llmApiEndpoint).
+          if ((this.plugin.settings.llmProvider || 'custom') !== 'custom') t.setDisabled(true);
         });
 
-      if (eng === 'openaiCompat') {
-        new Setting(containerEl)
-          .setName(s.llmApiKey)
-          .addText((t) => t
-            .setPlaceholder('sk-...')
-            .setValue(this.plugin.settings.openaiCompatApiKey || '')
-            .onChange(async (v) => { this.plugin.settings.openaiCompatApiKey = v.trim(); await this.plugin.saveSettings(); }));
-      }
+      new Setting(containerEl)
+        .setName(s.llmApiKey)
+        .addText((t) => {
+          t.setPlaceholder('sk-...')
+            .setValue(this.plugin.settings.llmApiKey || '')
+            .onChange(async (v) => { this.plugin.settings.llmApiKey = v.trim(); await this.plugin.saveSettings(); });
+          t.inputEl.type = 'password';
+        });
 
       new Setting(containerEl)
         .setName(s.llmModel)
-        .setDesc(eng === 'openaiCompat' ? s.llmModelDescOpenai
-          : eng === 'ollama' ? s.llmModelDescOllama : s.llmModelDescLmstudio)
+        .setDesc(s.llmModelDesc)
         .addText((t) => {
-          const modelKey = eng === 'openaiCompat' ? 'openaiCompatModel'
-            : eng === 'ollama' ? 'ollamaModel' : 'lmstudioModel';
-          t.setPlaceholder(eng === 'openaiCompat' ? 'gpt-4o-mini' : '')
-            .setValue(this.plugin.settings[modelKey] || '')
-            .onChange(async (v) => { this.plugin.settings[modelKey] = v.trim(); await this.plugin.saveSettings(); });
-        });
-
-      const tempKey = eng === 'openaiCompat' ? 'openaiCompatTemperature'
-        : eng === 'ollama' ? 'ollamaTemperature' : 'lmstudioTemperature';
-      new Setting(containerEl)
-        .setName(s.llmTemp)
-        .setDesc(s.llmTempDesc)
-        .addSlider((sl) => sl
-          .setLimits(0, 2, 0.1)
-          .setValue(this.plugin.settings[tempKey] ?? 0)
-          .setDynamicTooltip()
-          .onChange(async (v) => { this.plugin.settings[tempKey] = v; await this.plugin.saveSettings(); }));
-
-      const promptKey = eng === 'openaiCompat' ? 'openaiCompatPrompt'
-        : eng === 'ollama' ? 'ollamaPrompt' : 'lmstudioPrompt';
-      const promptSetting = new Setting(containerEl)
-        .setName(s.llmPrompt)
-        .setDesc(s.llmPromptDesc);
-      promptSetting.addTextArea((ta) => {
-        ta.setPlaceholder('Translate the following text to {{targetLang}}. Output only the translated text, nothing else.\n\n{{text}}')
-          .setValue(this.plugin.settings[promptKey] || '')
-          .onChange(async (v) => { this.plugin.settings[promptKey] = v; await this.plugin.saveSettings(); });
-        ta.inputEl.rows = 4;
-        ta.inputEl.style.width = '100%';
-        ta.inputEl.style.fontFamily = 'monospace';
-        ta.inputEl.style.fontSize = '12px';
-      });
+          t.setPlaceholder('e.g. gpt-4o-mini, llama3')
+            .setValue(this.plugin.settings.llmModel || '')
+            .onChange(async (v) => { this.plugin.settings.llmModel = v.trim(); await this.plugin.saveSettings(); });
+          // Native combobox: fetched models fill a datalist attached to the input.
+          const dl = document.createElement('datalist');
+          dl.id = 'mtt-llm-models';
+          t.inputEl.setAttribute('list', dl.id);
+          t.inputEl.parentElement.appendChild(dl);
+          this._llmModelDatalist = dl;
+          this._fillLlmModelDatalist();
+        })
+        .addExtraButton((b) => b
+          .setIcon('refresh-cw')
+          .setTooltip(s.llmFetchModels)
+          .onClick(() => this._fetchLlmModels()));
     }
 
     // ---- Per-feature Settings ----
