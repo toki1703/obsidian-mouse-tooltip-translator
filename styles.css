@@ -28,12 +28,11 @@
   font-size: 0.88em;
 }
 
+/* Holds localized language names ("英語 → 日本語"), not codes — keep normal case. */
 .mtt-tooltip .mtt-meta {
   margin-top: 4px;
   color: var(--text-faint, #888888);
   font-size: 0.78em;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .mtt-tooltip .mtt-dict {

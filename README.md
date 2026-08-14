@@ -115,6 +115,7 @@ Click the book icon in the ribbon or run the **"Open vocabulary book"** command 
 | Trigger | Mouseover / selection / both |
 | Mouseover unit | Translate the word or sentence under the cursor |
 | Hover delay | Wait time before translation starts |
+| Tooltip placement | Open the tooltip above or below the hovered text |
 | Show dictionary | Display dictionary-style results when available |
 | Show transliteration | Display transliteration / romanization |
 | Show source text | Display original text in the tooltip |

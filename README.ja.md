@@ -113,6 +113,7 @@
 | Trigger | マウスオーバー・選択・両方 |
 | Mouseover unit | カーソル下の単語または文章を翻訳 |
 | Hover delay | 翻訳開始までの待機時間 |
+| Tooltip placement | ツールチップをテキストの上/下どちらに表示するか |
 | Show dictionary | 利用可能な場合に辞書形式の結果を表示 |
 | Show transliteration | 音写 / ローマ字読みを表示 |
 | Show source text | ツールチップに元のテキストを表示 |

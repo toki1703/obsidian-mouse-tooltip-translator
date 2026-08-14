@@ -15,6 +15,10 @@ const DEFAULT_SETTINGS = {
   enablePageMobile: true,
   textType: 'word',               // 'word' | 'sentence'
   delayMs: 500,
+  // Where the tooltip opens relative to the hovered text (upstream 0.1.244).
+  // 'top' opens above like the reference extension; 'bottom' keeps this
+  // plugin's original below-the-text behavior. Flips when out of room.
+  tooltipPlacement: 'bottom',     // 'top' | 'bottom'
   showSourceText: false,
   showDetectedLang: false,
   showDictionary: true,
@@ -103,7 +107,7 @@ const STRINGS = {
     secPerFeature: '🎯Per-feature Settings',
     secHoverSelection: 'Hover / Text Selection',
     secPage: 'Page Translation',
-    secTooltip: 'Tooltip Contents',
+    secTooltip: 'Tooltip',
     // Master toggle
     masterEnabled: 'Enabled',
     masterEnabledDesc: 'Master switch for the translator.',
@@ -125,6 +129,7 @@ const STRINGS = {
     // Translation settings
     translateFrom: 'Translate from',
     translateTo: 'Translate to',
+    langAuto: 'Auto detect',
     skipSame: 'Skip same-language translations',
     skipSameDesc: "Hide the tooltip when the detected source language matches the target language (e.g. Japanese → Japanese).",
     skipIdentical: 'Skip identical translations',
@@ -163,6 +168,10 @@ const STRINGS = {
     mouseUnitDesc: 'Word picks one word under the cursor. Sentence expands to sentence boundary.',
     hoverDelay: 'Hover delay (ms)',
     hoverDelayDesc: 'Wait time before the tooltip is requested.',
+    tooltipPlacement: 'Tooltip placement',
+    tooltipPlacementDesc: 'Open the tooltip above or below the hovered text. It flips to the other side when there is no room on screen.',
+    placementAbove: 'Above',
+    placementBelow: 'Below',
     pageHoverOrig: 'Show original paragraph on hover during page translation',
     pageHoverOrigDesc: 'While page translation is active, disable normal hover/selection translation and show the pre-translation text of the hovered paragraph instead.',
     // Engine dropdown labels (for LLM engines)
@@ -230,7 +239,6 @@ const STRINGS = {
     secPerFeature: '🎯機能ごとの設定',
     secHoverSelection: 'ホバー翻訳 / テキスト選択翻訳',
     secPage: 'ページ翻訳',
-    secTooltip: 'ツールチップ Contents',
     featHover: 'ホバー翻訳',
     featHoverDesc: 'マウスカーソルを合わせたときに翻訳ツールチップを表示します。',
     featSelection: 'テキスト選択翻訳',
@@ -280,6 +288,7 @@ const STRINGS = {
     masterRestrictDesc: 'ノート本文（エディター・プレビュー・埋め込み）内でのみ反応します。オフにすると、サイドバーや見出し、設定など Obsidian UI 全体で翻訳します。',
     translateFrom: '翻訳元言語',
     translateTo: '翻訳先言語',
+    langAuto: '自動検出',
     skipSame: '同一言語の翻訳をスキップ',
     skipSameDesc: '翻訳先と同じ言語が検出された場合にツールチップを非表示にします（例: 日本語 → 日本語）。',
     skipIdentical: '同一テキストの翻訳をスキップ',
@@ -290,7 +299,11 @@ const STRINGS = {
     mouseUnitDesc: '「単語」はカーソル直下の1語を取得します。「文」は文境界まで展開します。',
     hoverDelay: 'ホバー遅延 (ms)',
     hoverDelayDesc: 'ツールチップを表示するまでの待機時間。',
-    secTooltip: 'ツールチップの内容',
+    tooltipPlacement: 'ツールチップの表示位置',
+    tooltipPlacementDesc: 'ホバーしたテキストの上と下のどちらにツールチップを表示するか。画面に入り切らない場合は反対側に表示します。',
+    placementAbove: '上',
+    placementBelow: '下',
+    secTooltip: 'ツールチップ',
     showDict: '単語の品詞（辞書）情報を表示',
     showDictDesc: 'Google が二言語辞書を返した場合、単純な翻訳の代わりに「名詞: ...」/「動詞: ...」形式で表示します。他のエンジンは品詞情報を返しません。',
     showTranslit: '転写（ローマ字読み）を表示',
@@ -383,6 +396,76 @@ const COMMON_LANGS = {
   tr: 'Turkish',
   uk: 'Ukrainian',
 };
+
+// ── Localized language names (mirrors upstream getLocalizedLangName, 0.1.246) ─
+// Uses Intl.DisplayNames (CLDR data built into Chromium) with the plugin UI
+// language; falls back to the curated English name / raw code when the tag is
+// invalid or CLDR has no data. English UI keeps the curated names as-is.
+const _displayNamesCache = {};
+function getDisplayNames(uiLang) {
+  if (!(uiLang in _displayNamesCache)) {
+    try {
+      _displayNamesCache[uiLang] = new Intl.DisplayNames([uiLang], {
+        type: 'language',
+        fallback: 'none',
+      });
+    } catch {
+      _displayNamesCache[uiLang] = null;
+    }
+  }
+  return _displayNamesCache[uiLang];
+}
+
+function getLocalizedLangName(code, englishName, uiLang) {
+  if (!code) return englishName || '';
+  const lang = String(uiLang || 'en').replace(/_/g, '-');
+  if (englishName && lang.startsWith('en')) return englishName;
+  const fallback = englishName || code;
+  const displayNames = getDisplayNames(lang);
+  if (!displayNames) return fallback;
+  let name;
+  try {
+    name = displayNames.of(String(code));
+  } catch {
+    return fallback;
+  }
+  if (!name || name === String(code)) return fallback;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+// UI language used for localized language names: the user-picked plugin
+// language, else the Obsidian locale / system language.
+function getUiLangCode() {
+  const ui = _mttSettings?.uiLang;
+  if (ui && ui !== 'system') return ui;
+  const loc = (typeof window !== 'undefined' && window.moment?.locale?.()) || '';
+  return loc || (typeof navigator !== 'undefined' && navigator.language) || 'en';
+}
+
+// Display label for a language code in the current UI language. 'auto' comes
+// from the plugin locale strings (the reference keeps Auto/None/Default rows as
+// locale-message specials).
+function langLabel(code) {
+  if (code === 'auto') return i18n().langAuto;
+  return getLocalizedLangName(code, COMMON_LANGS[code], getUiLangCode());
+}
+
+// Language dropdown entries localized to the UI language and sorted with that
+// language's collation, 'auto' pinned first — mirrors the reference settings
+// dropdowns (langOptionList, 0.1.246).
+function localizedLangEntries(includeAuto) {
+  const uiLang = getUiLangCode();
+  const entries = Object.keys(COMMON_LANGS)
+    .filter((c) => c !== 'auto')
+    .map((c) => [c, langLabel(c)]);
+  try {
+    entries.sort((a, b) => a[1].localeCompare(b[1], uiLang));
+  } catch {
+    entries.sort((a, b) => a[1].localeCompare(b[1]));
+  }
+  if (includeAuto) entries.unshift(['auto', langLabel('auto')]);
+  return entries;
+}
 
 // ---- HTTP helpers wrapping Obsidian's requestUrl (bypasses CORS) ----
 function buildUrl(base, searchParams) {
@@ -484,7 +567,10 @@ class GoogleEngine extends BaseTranslator {
   static async wrapResponse(data, text, src) {
     if (!data || typeof data !== 'object') return null;
     const sentences = Array.isArray(data.sentences) ? data.sentences : [];
-    let targetText = sentences.map((s) => (s && s.trans) || '').filter(Boolean).join(' ');
+    // Google returns each sentence with its own trailing space (and "\n" for
+    // line breaks) already baked in, so join with '' — joining with ' ' doubles
+    // the space between every sentence (upstream fix, 0.1.246).
+    let targetText = sentences.map((s) => (s && s.trans) || '').filter(Boolean).join('');
     if (targetText) targetText = targetText.replace(/\n /g, '\n');
     let transliteration = sentences.map((s) => (s && s.src_translit) || '').filter(Boolean).join(' ').trim();
     if (transliteration) transliteration = transliteration.replace(/\n /g, '\n');
@@ -1157,7 +1243,8 @@ class TooltipManager {
     if (this.plugin.settings.showDetectedLang && result.sourceLang) {
       const meta = document.createElement('div');
       meta.className = 'mtt-meta';
-      meta.textContent = `${result.sourceLang} → ${result.targetLang}`;
+      // Localized language names instead of raw codes (upstream, 0.1.246).
+      meta.textContent = `${langLabel(result.sourceLang)} → ${langLabel(result.targetLang)}`;
       el.appendChild(meta);
     }
     el.style.display = 'block';
@@ -1177,6 +1264,11 @@ class TooltipManager {
       } else {
         y = rect.bottom + pad;
       }
+    } else if (this.plugin?.settings?.tooltipPlacement === 'top') {
+      // 'top' opens above the text like the reference extension; flips below
+      // when it would leave the window (tooltipPlacement, upstream 0.1.244).
+      y = rect.top - h - pad;
+      if (y < 0) y = rect.bottom + pad;
     } else {
       y = rect.bottom + pad;
       if (y + h > window.innerHeight) y = rect.top - h - pad;
@@ -1348,7 +1440,7 @@ class TranslationView extends ItemView {
     const langBar = root.createEl('div', { cls: 'mtt-trans-lang-bar' });
 
     this._srcSelect = langBar.createEl('select', { cls: 'mtt-trans-lang-select' });
-    for (const [code, label] of Object.entries(COMMON_LANGS)) {
+    for (const [code, label] of localizedLangEntries(true)) {
       const opt = this._srcSelect.createEl('option', { text: label });
       opt.value = code;
       if (code === this._srcLang) opt.selected = true;
@@ -1363,8 +1455,7 @@ class TranslationView extends ItemView {
     swapBtn.addEventListener('click', () => this._swapLangs());
 
     this._tgtSelect = langBar.createEl('select', { cls: 'mtt-trans-lang-select' });
-    for (const [code, label] of Object.entries(COMMON_LANGS)) {
-      if (code === 'auto') continue;
+    for (const [code, label] of localizedLangEntries(false)) {
       const opt = this._tgtSelect.createEl('option', { text: label });
       opt.value = code;
       if (code === this._tgtLang) opt.selected = true;
@@ -1493,7 +1584,9 @@ class TranslationView extends ItemView {
       el.createEl('div', { cls: 'mtt-trans-translit', text: transliteration });
     }
 
-    this._metaEl.textContent = sourceLang && targetLang ? `${sourceLang} → ${targetLang}` : '';
+    this._metaEl.textContent = sourceLang && targetLang
+      ? `${langLabel(sourceLang)} → ${langLabel(targetLang)}`
+      : '';
     this._copyBtn.style.visibility = '';
   }
 
@@ -1817,7 +1910,13 @@ module.exports = class MouseTooltipPlugin extends Plugin {
         this.tooltip.hide();
       });
       this.registerDomEvent(document, 'mousedown', (e) => {
-        if (!this.tooltip.isOwn(e.target)) this.tooltip.hide();
+        if (this.tooltip.isOwn(e.target)) return;
+        // A click dismisses the tooltip AND cancels a pending hover request, so
+        // the tooltip can't pop up under a stationary cursor right after the
+        // click; it reappears on the next mouse move. Selection translation
+        // still shows via the mouseup path. (upstream #114, 0.1.246)
+        if (this.pendingTimer) { clearTimeout(this.pendingTimer); this.pendingTimer = null; }
+        this.tooltip.hide();
       });
       this.registerDomEvent(document, 'mouseup', (e) => this.onMouseUp(e));
     }
@@ -1972,7 +2071,12 @@ module.exports = class MouseTooltipPlugin extends Plugin {
   translateSelection() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
-    const text = sel.toString().trim();
+    // A sentence dragged across multiple lines (CM6 renders each visual line as
+    // its own DOM block, so getSelection() inserts a newline at every boundary)
+    // was sent to the translator split by newlines and came back as fragments.
+    // Collapse whitespace runs (incl. newlines) to a single space so a wrapped
+    // sentence is translated as one flowing sentence (upstream fix, 0.1.246).
+    const text = sel.toString().replace(/\s+/g, ' ').trim();
     if (!text) return;
     let rect;
     try {
@@ -2174,7 +2278,7 @@ class MouseTooltipSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(s.translateFrom)
       .addDropdown((d) => {
-        for (const [k, v] of Object.entries(COMMON_LANGS)) d.addOption(k, v);
+        for (const [k, v] of localizedLangEntries(true)) d.addOption(k, v);
         d.setValue(this.plugin.settings.sourceLang)
           .onChange(async (v) => { this.plugin.settings.sourceLang = v; await this.plugin.saveSettings(); });
       });
@@ -2182,10 +2286,7 @@ class MouseTooltipSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(s.translateTo)
       .addDropdown((d) => {
-        for (const [k, v] of Object.entries(COMMON_LANGS)) {
-          if (k === 'auto') continue;
-          d.addOption(k, v);
-        }
+        for (const [k, v] of localizedLangEntries(false)) d.addOption(k, v);
         d.setValue(this.plugin.settings.targetLang)
           .onChange(async (v) => { this.plugin.settings.targetLang = v; await this.plugin.saveSettings(); });
       });
@@ -2362,8 +2463,21 @@ class MouseTooltipSettingTab extends PluginSettingTab {
           this.plugin.tooltip.hide();
         }));
 
-    // ---- Tooltip Contents ----
+    // ---- Tooltip ----
     containerEl.createEl('h3', { text: s.secTooltip });
+
+    new Setting(containerEl)
+      .setName(s.tooltipPlacement)
+      .setDesc(s.tooltipPlacementDesc)
+      .addDropdown((d) => d
+        .addOption('top', s.placementAbove)
+        .addOption('bottom', s.placementBelow)
+        .setValue(this.plugin.settings.tooltipPlacement || 'bottom')
+        .onChange(async (v) => {
+          this.plugin.settings.tooltipPlacement = v;
+          await this.plugin.saveSettings();
+          this.plugin.tooltip.hide();
+        }));
 
     new Setting(containerEl)
       .setName(s.showDict)
